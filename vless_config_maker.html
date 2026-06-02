@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VLESS Config Maker</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#0f0f0f;color:#e8e8e8;min-height:100vh;padding:2rem 1rem}
+.container{max-width:780px;margin:0 auto;display:flex;flex-direction:column;gap:1.5rem}
+h1{font-size:20px;font-weight:500;color:#fff;letter-spacing:-.3px}
+.sub{font-size:13px;color:#888;margin-top:4px}
+.card{background:#1a1a1a;border:1px solid #2a2a2a;border-radius:12px;padding:1.25rem}
+.label{font-size:12px;color:#888;margin-bottom:8px;display:flex;align-items:center;gap:6px;text-transform:uppercase;letter-spacing:.5px}
+textarea{width:100%;background:#111;border:1px solid #2a2a2a;border-radius:8px;padding:10px 12px;font-family:monospace;font-size:12px;color:#e8e8e8;resize:vertical;line-height:1.6;outline:none;transition:border-color .15s}
+textarea:focus{border-color:#444}
+.btn-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 20px;border-radius:8px;border:1px solid #333;background:transparent;color:#e8e8e8;font-size:13px;cursor:pointer;transition:all .15s;font-family:inherit}
+.btn:hover{background:#222;border-color:#444}
+.btn:active{transform:scale(.97)}
+.btn-primary{background:#e8e8e8;color:#0f0f0f;border-color:#e8e8e8;font-weight:500}
+.btn-primary:hover{background:#ccc;border-color:#ccc}
+.err{color:#f87171;font-size:13px}
+.stats{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1rem}
+.stat{background:#111;border-radius:8px;padding:8px 14px;font-size:12px;color:#888}
+.stat b{color:#fff;font-weight:500}
+.out-card{display:none}
+.scroll-box{max-height:480px;overflow-y:auto;display:flex;flex-direction:column;gap:6px}
+.cfg-row{background:#111;border-radius:8px;padding:10px 12px;display:flex;align-items:flex-start;gap:10px}
+.cfg-ip{min-width:110px;font-size:11px;color:#666;font-family:monospace;padding-top:2px;flex-shrink:0}
+.cfg-text{flex:1;font-family:monospace;font-size:11px;color:#a8d8a8;word-break:break-all;line-height:1.6}
+.copy-btn{flex-shrink:0;padding:4px 10px;font-size:11px;border:1px solid #2a2a2a;border-radius:6px;background:transparent;color:#888;cursor:pointer;white-space:nowrap;font-family:inherit;transition:all .15s}
+.copy-btn:hover{background:#1a1a1a;color:#e8e8e8;border-color:#444}
+.action-row{display:flex;gap:8px;margin-bottom:1rem}
+.divider{height:1px;background:#2a2a2a;margin:.75rem 0}
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:#111}
+::-webkit-scrollbar-thumb{background:#333;border-radius:4px}
+</style>
+</head>
+<body>
+<div class="container">
+  <div>
+    <h1>VLESS Config IP Replacer</h1>
+    <p class="sub">Paste your config + IP list → get one config per IP</p>
+  </div>
+
+  <div class="card">
+    <div class="label">⚙ vless config</div>
+    <textarea id="cfg" rows="4" placeholder="vless://uuid@vercel.app:443?encryption=none&security=tls&...#name"></textarea>
+  </div>
+
+  <div class="card">
+    <div class="label">◈ IP list — paste anything, IPs extracted automatically</div>
+    <textarea id="ips" rows="9" placeholder="  32  205.251.253.51   529ms 2964ms  ✔  ★★★★★★&#10;  33  13.249.170.161   500ms ...&#10;76.76.21.48&#10;76.76.22.105&#10;&#10;Any format works — just needs to contain IPs somewhere"></textarea>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn btn-primary" onclick="generate()">→ Generate configs</button>
+    <button class="btn" onclick="clearAll()">✕ Clear</button>
+    <span id="err" class="err"></span>
+  </div>
+
+  <div class="card out-card" id="out">
+    <div class="stats" id="stats"></div>
+    <div class="action-row">
+      <button class="btn" onclick="copyAll()">⎘ Copy all</button>
+      <button class="btn" onclick="downloadTxt()">↓ Download .txt</button>
+    </div>
+    <div class="divider"></div>
+    <div class="scroll-box" id="list"></div>
+  </div>
+</div>
+
+<script>
+const IP_RE=/\b(\d{1,3}\.){3}\d{1,3}\b/g;
+let configs=[];
+
+function extractIPs(raw){
+  const all=raw.match(IP_RE)||[];
+  return [...new Set(all)].filter(ip=>ip.split('.').every(p=>{const n=+p;return n>=0&&n<=255;}));
+}
+
+function parseVless(uri){
+  uri=uri.trim();
+  if(!uri.startsWith('vless://'))return null;
+  const body=uri.slice(8);
+  const at=body.indexOf('@');
+  if(at<0)return null;
+  const uuid=body.slice(0,at);
+  let rest=body.slice(at+1);
+  const hi=rest.lastIndexOf('#');
+  const name=hi>=0?rest.slice(hi+1):'';
+  rest=hi>=0?rest.slice(0,hi):rest;
+  const qi=rest.indexOf('?');
+  const hp=qi>=0?rest.slice(0,qi):rest;
+  const ps=qi>=0?rest.slice(qi+1):'';
+  const ci=hp.lastIndexOf(':');
+  const host=ci>=0?hp.slice(0,ci):hp;
+  const port=ci>=0?hp.slice(ci+1):'443';
+  return{uuid,host,port,params:ps,name};
+}
+
+function buildVless(cfg,ip){
+  const ps=cfg.params?'?'+cfg.params:'';
+  const nm=cfg.name?'#'+cfg.name:'';
+  return `vless://${cfg.uuid}@${ip}:${cfg.port}${ps}${nm}`;
+}
+
+function generate(){
+  const err=document.getElementById('err');
+  err.textContent='';
+  const cfgRaw=document.getElementById('cfg').value.trim();
+  const ipsRaw=document.getElementById('ips').value;
+  if(!cfgRaw){err.textContent='Paste a vless:// config.';return;}
+  const cfg=parseVless(cfgRaw);
+  if(!cfg){err.textContent='Could not parse config — must start with vless://';return;}
+  const ips=extractIPs(ipsRaw);
+  if(!ips.length){err.textContent='No valid IPs found.';return;}
+
+  configs=ips.map(ip=>({ip,uri:buildVless(cfg,ip)}));
+
+  document.getElementById('stats').innerHTML=
+    `<div class="stat">IPs: <b>${ips.length}</b></div>
+     <div class="stat">Configs: <b>${configs.length}</b></div>
+     <div class="stat">Replaced: <b>${cfg.host}</b></div>`;
+
+  const list=document.getElementById('list');
+  list.innerHTML='';
+  configs.forEach(({ip,uri},i)=>{
+    const d=document.createElement('div');
+    d.className='cfg-row';
+    d.innerHTML=`<span class="cfg-ip">${ip}</span>
+      <span class="cfg-text" id="ct${i}">${esc(uri)}</span>
+      <button class="copy-btn" onclick="copySingle(${i},this)">copy</button>`;
+    list.appendChild(d);
+  });
+
+  document.getElementById('out').style.display='block';
+  document.getElementById('out').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function copySingle(i,btn){
+  navigator.clipboard.writeText(configs[i].uri).then(()=>{
+    const o=btn.textContent;btn.textContent='✓ done';
+    setTimeout(()=>{btn.textContent=o;},1500);
+  });
+}
+
+function copyAll(){
+  navigator.clipboard.writeText(configs.map(c=>c.uri).join('\n')).then(()=>{
+    const btn=event.target;const o=btn.textContent;
+    btn.textContent='✓ Copied all';setTimeout(()=>{btn.textContent=o;},1800);
+  });
+}
+
+function downloadTxt(){
+  const blob=new Blob([configs.map(c=>c.uri).join('\n')],{type:'text/plain'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='vless_configs.txt';a.click();
+}
+
+function clearAll(){
+  document.getElementById('cfg').value='';
+  document.getElementById('ips').value='';
+  document.getElementById('err').textContent='';
+  document.getElementById('out').style.display='none';
+  configs=[];
+}
+</script>
+</body>
+</html>
